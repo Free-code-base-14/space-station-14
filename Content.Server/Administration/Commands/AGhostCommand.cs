@@ -84,13 +84,14 @@ public sealed class AGhostCommand : LocalizedCommands
             return;
         }
 
-        if (mind.VisitingEntity != default && _entities.TryGetComponent<GhostComponent>(mind.VisitingEntity, out var oldGhostComponent))
+        if (mind.VisitingEntity != default) //FCB mech rework
         {
             mindSystem.UnVisit(mindId, mind);
             // If already an admin ghost, then return to body.
-            if (oldGhostComponent.CanGhostInteract)
-                return;
         }
+
+        if (_entities.TryGetComponent<GhostComponent>(mind.VisitingEntity, out var oldGhostComponent) && oldGhostComponent.CanGhostInteract)//FCB mech rework
+            return;//FCB mech rework
 
         var canReturn = mind.CurrentEntity != null
                         && !_entities.HasComponent<GhostComponent>(mind.CurrentEntity);

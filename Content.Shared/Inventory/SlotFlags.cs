@@ -26,7 +26,8 @@ public enum SlotFlags
     LEGS = 1 << 13,
     FEET = 1 << 14,
     SUITSTORAGE = 1 << 15,
-    All = ~NONE,
+    MECHOUTER = 1 << 16,
+    All = ~NONE & ~MECHOUTER,
 
     WITHOUT_POCKET = All & ~POCKET
 }

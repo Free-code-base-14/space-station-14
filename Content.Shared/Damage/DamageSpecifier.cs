@@ -45,6 +45,11 @@ namespace Content.Shared.Damage
         [IncludeDataField(customTypeSerializer: typeof(DamageSpecifierDictionarySerializer), readOnly: true)]
         public Dictionary<string, FixedPoint2> DamageDict { get; set; } = new();
 
+        //FCB armour piercing add begin
+        [DataField]
+        public FixedPoint2 armourPiercing = 0;
+        //FCB armour piercing add end
+
         /// <summary>
         ///     Returns a sum of the damage values.
         /// </summary>

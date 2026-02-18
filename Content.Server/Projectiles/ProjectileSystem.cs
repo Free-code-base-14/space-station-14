@@ -8,9 +8,11 @@ using Content.Shared.Damage.Components;
 using Content.Shared.Damage.Systems;
 using Content.Shared.Database;
 using Content.Shared.FixedPoint;
+using Content.Shared.Popups;
 using Content.Shared.Projectiles;
 using Robust.Shared.Physics.Events;
 using Robust.Shared.Player;
+using Content.Shared.FCB.Weapons.Ranged.Events;
 
 namespace Content.Server.Projectiles;
 
@@ -22,6 +24,7 @@ public sealed class ProjectileSystem : SharedProjectileSystem
     [Dependency] private readonly DestructibleSystem _destructibleSystem = default!;
     [Dependency] private readonly GunSystem _guns = default!;
     [Dependency] private readonly SharedCameraRecoilSystem _sharedCameraRecoil = default!;
+    [Dependency] private readonly SharedPopupSystem _popup = default!; //FCB shield rework
 
     public override void Initialize()
     {
@@ -45,6 +48,22 @@ public sealed class ProjectileSystem : SharedProjectileSystem
             SetShooter(uid, component, target);
             return;
         }
+
+        //FCB shield rework begin
+        var blockattemptEv = new ProjectileBlockAttemptEvent(uid, component, false, component.Damage);
+        RaiseLocalEvent(target, ref blockattemptEv);
+        if (blockattemptEv.CancelledHit)
+        {
+            SetShooter(uid, component, target);
+            QueueDel(uid);
+            _popup.PopupEntity(Loc.GetString("block-shot"), target);
+
+            if (blockattemptEv.hitMarkColor != null)
+                _color.RaiseEffect((Color)blockattemptEv.hitMarkColor, new List<EntityUid>() { target }, Filter.Pvs(target, entityManager: EntityManager));
+
+            return;
+        }
+        //FCB shield rework end
 
         var ev = new ProjectileHitEvent(component.Damage * _damageableSystem.UniversalProjectileDamageModifier, target, component.Shooter);
         RaiseLocalEvent(uid, ref ev);

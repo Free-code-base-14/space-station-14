@@ -6,6 +6,7 @@ using Content.Shared.Damage.Components;
 using Content.Shared.Damage.Systems;
 using Content.Shared.Database;
 using Content.Shared.Effects;
+using Content.Shared.FCB.Weapons.Ranged.Events;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Throwing;
 using Robust.Shared.Physics.Components;
@@ -32,6 +33,17 @@ public sealed class DamageOtherOnHitSystem : SharedDamageOtherOnHitSystem
     {
         if (TerminatingOrDeleted(args.Target))
             return;
+
+        //FCB shield rework begin
+        var blockEv = new ThrowableProjectileBlockAttemptEvent(component.Damage);
+
+        RaiseLocalEvent(args.Target, ref blockEv);
+        if (blockEv.CancelledHit)
+        {
+            _color.RaiseEffect(Color.Red, [args.Target], Filter.Pvs(args.Target, entityManager: EntityManager));
+            return;
+        }
+        //FCB shield rework end
 
         var dmg = _damageable.ChangeDamage(args.Target, component.Damage * _damageable.UniversalThrownDamageModifier, component.IgnoreResistances, origin: args.Component.Thrower);
 

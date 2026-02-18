@@ -12,6 +12,7 @@ using Content.Shared.Throwing;
 using Content.Shared.Weapons.Melee;
 using JetBrains.Annotations;
 using Robust.Shared.Containers;
+using Content.Shared.FCB.AltBlocking;//FCB mechs rework
 
 namespace Content.Shared.ActionBlocker
 {
@@ -197,6 +198,9 @@ namespace Content.Shared.ActionBlocker
             // If target is in a container can we attack
             if (target != null && _container.IsEntityInContainer(target.Value))
             {
+                if (TryComp<AltBlockingComponent>(target, out var comp) && comp.User != null)//FCB mechs rework
+                    return true;//FCB mechs rework
+
                 return false;
             }
 

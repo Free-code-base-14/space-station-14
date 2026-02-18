@@ -69,7 +69,6 @@
       right:
       - state: inhand-right-blade
         shader: unshaded
-  - type: Reflect
   - type: IgnitionSource
     temperature: 700
 
@@ -339,9 +338,46 @@
   - type: Item
     size: Small
     sprite: Objects/Weapons/Melee/e_sword_double-inhands.rsi
-  - type: Reflect
-    reflectProb: .75
-    spread: 75
+  - type: AltBlocking
+    rangeBlockProb: 0
+    meleeBlockProb: 0
+    activeRangeBlockProb: 0.85
+    activeMeleeBlockProb: 0.85
+  - type: ToggleBlockingChance
+    toggledRangeBlockProb: 0.4
+    toggledMeleeBlockProb: 0.35
+  - type: ChangeAppearanceOnActiveBlocking
+    spriteLayer: shield
+    inhandVisuals:
+      left:
+      - state: inhand-left-shield
+        shader: unshaded
+      right:
+      - state: inhand-right-shield
+        shader: unshaded
+  - type: ArmorBlock
+    tresholddict:
+      Piercing: 40
+      Blunt: 30
+      Heat: 35
+      Slash: 30
+      Radiation: 1000
+      Poison: 1000
+      Airloss: 1000
+      Caustic: 1000
+    durabilitytresholddict:
+      Piercing: 10000
+      Blunt: 10000
+      Heat: 10000
+      Slash: 10000
+      Radiation: 1000
+      Poison: 1000
+      Airloss: 1000
+      Caustic: 1000
+  - type: InstastunResistOnActiveBlocking
+    resistedStunTypes:
+      - Creampie
+      - Projectile
 
 # Item will look weird in handslot. Will need to adjust handstorage visuals in a future PR
 - type: entity
@@ -392,9 +428,6 @@
   - type: Item
     size: Small
     sprite: Objects/Weapons/Melee/hypereutactic_blade_inhands.rsi
-  - type: Reflect
-    reflectProb: 1.0
-    spread: 75
 
 # Borgs
 

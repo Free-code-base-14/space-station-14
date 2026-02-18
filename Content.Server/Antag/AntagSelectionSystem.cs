@@ -36,6 +36,8 @@ using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
 using Robust.Shared.Utility;
+using Content.Shared.FCB.Mech.Components;
+using Content.Server.FCB.Mech.Systems;
 
 namespace Content.Server.Antag;
 
@@ -64,6 +66,7 @@ public sealed partial class AntagSelectionSystem : GameRuleSystem<AntagSelection
     [Dependency] private readonly EntityWhitelistSystem _whitelist = default!;
     [Dependency] private readonly ISharedAdminLogManager _adminLogger = default!;
     [Dependency] private readonly ArrivalsSystem _arrivals = default!;
+    [Dependency] private readonly AltMechSystem _altmech = default!;
 
     // arbitrary random number to give late joining some mild interest.
     public const float LateJoinRandomChance = 0.5f;
@@ -525,6 +528,19 @@ public sealed partial class AntagSelectionSystem : GameRuleSystem<AntagSelection
     /// </summary>
     private void InitializeAntag(Entity<AntagSelectionComponent> ent, EntityUid antag, ICommonSession? session, AntagSelectionDefinition def)
     {
+        //FCB mech rework begin
+        if (session != null && TryComp<AltMechComponent>(session.AttachedEntity, out var mechComp))
+        {
+             if (mechComp.PilotSlot.ContainedEntity != null)
+             {
+                    InitializeAntag(ent, (EntityUid)mechComp.PilotSlot.ContainedEntity, session, def);
+                    return;
+             }
+
+        }
+            
+        //FCB mech rework end
+
         // The following is where we apply components, equipment, and other changes to our antagonist entity.
         EntityManager.AddComponents(antag, def.Components);
 
