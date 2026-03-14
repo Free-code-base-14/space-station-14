@@ -2,13 +2,13 @@ using Content.Shared.Clothing.EntitySystems;
 using Content.Shared.Timing;
 using JetBrains.Annotations;
 
-namespace Content.Shared.Interaction.Events;
+namespace Content.Shared.FCB.Weapons.Events;
 
 /// <summary>
 ///     Raised when using the entity in your hands.
 /// </summary>
 [PublicAPI]
-public sealed class UseInHandEvent : HandledEntityEventArgs
+public sealed class GunActivatedEvent : HandledEntityEventArgs
 {
     /// <summary>
     ///     Entity holding the item in their hand.
@@ -21,7 +21,7 @@ public sealed class UseInHandEvent : HandledEntityEventArgs
     /// </summary>
     public bool ApplyDelay = true;
 
-    public UseInHandEvent(EntityUid user)
+    public GunActivatedEvent(EntityUid user)
     {
         User = user;
     }

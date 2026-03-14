@@ -1,7 +1,9 @@
 // © FCB, MIT, full text: https://github.com/Free-code-base-14/space-station-14/blob/master/LICENSE.TXT
-using Content.Shared.Item;
-using Robust.Shared.Serialization;
 using Content.Shared.FCB.AltBlocking;
+using Content.Shared.Hands;
+using Content.Shared.Item;
+using Content.Shared.Item.ItemToggle.Components;
+using Robust.Shared.Serialization;
 
 namespace Content.Shared.FCB.ChangeAppearanceOnActiveBlocking;
 
@@ -28,11 +30,11 @@ public sealed partial class SharedChangeAppearanceOnActiveBlockingSystem : Entit
         _appearanceSystem.SetData(ent, ActiveBlockingVisuals.Enabled, ent.Comp.Toggled);
     }
 
-    public void OnActiveBlock(EntityUid uid, ChangeAppearanceOnActiveBlockingComponent component, ActiveBlockingEvent args)
+    public void OnActiveBlock(Entity<ChangeAppearanceOnActiveBlockingComponent> ent, ref ActiveBlockingEvent args)
     {
-        component.Toggled = args.Active;
-        Dirty(uid, component);
-        UpdateVisuals((uid, component));
+        ent.Comp.Toggled = args.Active;
+        Dirty(ent);
+        UpdateVisuals((ent.Owner, ent.Comp));
     }
 }
 

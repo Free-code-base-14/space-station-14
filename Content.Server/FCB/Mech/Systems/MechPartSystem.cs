@@ -7,17 +7,22 @@ using Content.Shared.Destructible;
 using Content.Shared.DoAfter;
 using Content.Shared.Eye.Blinding.Components;
 using Content.Shared.Eye.Blinding.Systems;
+using Content.Shared.FCB.Mech.Components;
+using Content.Shared.FCB.Mech.Equipment.Components;
+using Content.Shared.FCB.Mech.Parts.Components;
+using Content.Shared.FCB.Mech.Systems;
+using Content.Shared.FixedPoint;
+using Content.Shared.Flash;
+using Content.Shared.Flash.Components;
 using Content.Shared.Hands.Components;
 using Content.Shared.Interaction;
 using Content.Shared.Interaction.Components;
 using Content.Shared.Movement.Components;
 using Content.Shared.Movement.Systems;
 using Content.Shared.Power.Components;
-using Content.Shared.FCB.Mech.Components;
-using Content.Shared.FCB.Mech.Parts.Components;
-using Content.Shared.FCB.Mech.Systems;
 using Content.Shared.Whitelist;
 using Robust.Shared.Containers;
+using YamlDotNet.Core.Tokens;
 
 namespace Content.Server.FCB.Mech.Systems;
 
@@ -53,7 +58,10 @@ public sealed class MechPartSystem : EntitySystem
         SubscribeLocalEvent<MechOpticsComponent, MechPartRemovedEvent>(OnOpticsRemoved);
 
         SubscribeLocalEvent<MechPartComponent, DestructionEventArgs>(OnPartDestroyed);
-        //SubscribeLocalEvent<MechPartComponent, InsertPartEvent>(OnArmInserted);
+
+        SubscribeLocalEvent<MechPartComponent, MechPartRelayedEvent<FlashAttemptEvent>>(OnFlashAttempt);
+
+        SubscribeLocalEvent<MechPartComponent, DamageChangedEvent>(OnDamageChanged);
     }
 
     private void OnPartDestroyed(Entity<MechPartComponent> ent, ref DestructionEventArgs args)
@@ -115,7 +123,7 @@ public sealed class MechPartSystem : EntitySystem
         if (mechComp.PilotSlot.ContainedEntity == null)
             return;
 
-        if (!TryComp<BlindableComponent>(ent.Owner, out var blindableCompMech))
+        if (!TryComp<BlindableComponent>(args.Mech, out var blindableCompMech))
             return;
 
         if (TryComp<BlindableComponent>(mechComp.PilotSlot.ContainedEntity, out var blindableComp))
@@ -283,7 +291,7 @@ public sealed class MechPartSystem : EntitySystem
         if (!TryComp<AltMechComponent>(args.Mech, out var mechComp))
             return;
 
-        mechComp.Energy = ent.Comp.LastCharge;
+        mechComp.Energy = ent.Comp.CurrentCharge;
         mechComp.MaxEnergy = ent.Comp.MaxCharge;
 
         _mech.UpdateMechOnlineStatus(args.Mech, ent.Owner);
@@ -312,5 +320,20 @@ public sealed class MechPartSystem : EntitySystem
         mechComp.MaxEnergy = 1;
 
         _mech.UpdateMechOnlineStatus(args.Mech, ent.Owner);
+    }
+
+    private void OnFlashAttempt(Entity<MechPartComponent> ent, ref MechPartRelayedEvent<FlashAttemptEvent> args)
+    {
+        if (TryComp<FlashImmunityComponent>(ent.Owner, out var _))
+            args.Args.Cancelled = true;
+    }
+
+    private void OnDamageChanged(Entity<MechPartComponent> ent, ref DamageChangedEvent args)
+    {
+        var integrity = ent.Comp.MaxIntegrity - args.Damageable.TotalDamage;
+
+        ent.Comp.Integrity = FixedPoint2.Clamp(integrity, 0, ent.Comp.MaxIntegrity);
+
+        Dirty(ent);
     }
 }

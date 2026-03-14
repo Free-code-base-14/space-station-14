@@ -1,9 +1,7 @@
 // © FCB, MIT, full text: https://github.com/Free-code-base-14/space-station-14/blob/master/LICENSE.TXT
 using Content.Shared.Access.Components;
-using Content.Shared.ActionBlocker;
 using Content.Shared.Actions;
 using Content.Shared.Damage;
-using Content.Shared.Damage.Systems;
 using Content.Shared.DoAfter;
 using Content.Shared.DragDrop;
 using Content.Shared.Eye.Blinding.Components;
@@ -18,14 +16,12 @@ using Content.Shared.FCB.Weapons.Ranged.Events;
 using Content.Shared.FixedPoint;
 using Content.Shared.Flash;
 using Content.Shared.Flash.Components;
-using Content.Shared.Hands.EntitySystems;
-using Content.Shared.Interaction;
+using Content.Shared.Gravity;
 using Content.Shared.Interaction.Events;
 using Content.Shared.Inventory;
 using Content.Shared.Mech;
 using Content.Shared.Mech.Components;
 using Content.Shared.Mech.EntitySystems;
-using Content.Shared.Mech.Equipment.Components;
 using Content.Shared.Movement.Components;
 using Content.Shared.Movement.Systems;
 using Content.Shared.Popups;
@@ -37,6 +33,7 @@ using Content.Shared.Weapons.Melee;
 using Content.Shared.Whitelist;
 using Robust.Shared.Containers;
 using Robust.Shared.Network;
+using Robust.Shared.Random;
 using Robust.Shared.Serialization;
 using Robust.Shared.Timing;
 
@@ -49,17 +46,13 @@ public abstract partial class SharedAltMechSystem : EntitySystem
 {
     [Dependency] private readonly IGameTiming _timing = default!;
     [Dependency] private readonly INetManager _net = default!;
-    [Dependency] private readonly ActionBlockerSystem _actionBlocker = default!;
     [Dependency] private readonly SharedActionsSystem _actions = default!;
     [Dependency] private readonly SharedAppearanceSystem _appearance = default!;
     [Dependency] private readonly SharedContainerSystem _container = default!;
-    [Dependency] private readonly SharedInteractionSystem _interaction = default!;
-    [Dependency] private readonly SharedMoverController _mover = default!;
     [Dependency] private readonly SharedPopupSystem _popup = default!;
     [Dependency] private readonly SharedDoAfterSystem _doAfter = default!;
     [Dependency] private readonly EntityWhitelistSystem _whitelistSystem = default!;
     [Dependency] private readonly MovementSpeedModifierSystem _movementSpeedModifier = default!;
-    [Dependency] private readonly SharedHandsSystem _hands = default!;
     [Dependency] private readonly InventorySystem _inventory = default!;
     [Dependency] private readonly DamageableSystem _damageable = default!;
     [Dependency] private readonly BlindableSystem _blindable = default!;
@@ -68,9 +61,8 @@ public abstract partial class SharedAltMechSystem : EntitySystem
     /// <inheritdoc/>
     public override void Initialize()
     {
-        SubscribeLocalEvent<AltMechComponent, MechToggleEquipmentEvent>(OnToggleEquipmentAction);
         SubscribeLocalEvent<AltMechComponent, MechEjectPilotEvent>(OnEjectPilotEvent);
-        SubscribeLocalEvent<AltMechComponent, UserActivateInWorldEvent>(RelayInteractionEvent);
+
         SubscribeLocalEvent<AltMechComponent, ComponentStartup>(OnStartup);
         SubscribeLocalEvent<AltMechComponent, EntityStorageIntoContainerAttemptEvent>(OnEntityStorageDump);
         SubscribeLocalEvent<AltMechComponent, GetAdditionalAccessEvent>(OnGetAdditionalAccess);
@@ -84,19 +76,14 @@ public abstract partial class SharedAltMechSystem : EntitySystem
         SubscribeLocalEvent<AltMechPilotComponent, GetMeleeWeaponEvent>(OnGetMeleeWeapon);
         SubscribeLocalEvent<AltMechPilotComponent, AttackAttemptEvent>(OnAttackAttempt);
 
+        SubscribeLocalEvent<AltMechComponent, IsWeightlessEvent>(OnWeightlessCheck);
+
         SubscribeLocalEvent<AltMechComponent, ProjectileBlockAttemptEvent>(OnProjectileHit, after: [typeof(AltBlockingSystem)]);
         SubscribeLocalEvent<AltMechComponent, HitscanBlockAttemptEvent>(OnHitscan, after: [typeof(AltBlockingSystem)]);
         SubscribeLocalEvent<AltMechComponent, MeleeHitBlockAttemptEvent>(OnMeleeHit, after: [typeof(AltBlockingSystem)]);
         SubscribeLocalEvent<AltMechComponent, ThrowableProjectileBlockAttemptEvent>(OnThrownProjectileHit, after: [typeof(AltBlockingSystem)]);
 
         InitializeRelay();
-    }
-
-    private void OnToggleEquipmentAction(EntityUid uid, AltMechComponent component, MechToggleEquipmentEvent args)
-    {
-        if (args.Handled)
-            return;
-        args.Handled = true;
     }
 
     private void OnEjectPilotEvent(EntityUid uid, AltMechComponent component, MechEjectPilotEvent args)
@@ -106,29 +93,30 @@ public abstract partial class SharedAltMechSystem : EntitySystem
 
         args.Handled = true;
 
-        if (!TryEject(uid, component))
-            return;
-
         var ev = new OnMechExitEvent();
         RaiseLocalEvent(uid, ref ev);
     }
 
     private void OnPilotFlashed(Entity<AltMechComponent> ent, ref MechPilotRelayedEvent<FlashAttemptEvent> args)
     {
-        if (ent.Comp.ContainerDict["head"].ContainedEntity == null)
-            return;
-
-        if (TryComp<FlashImmunityComponent>(ent.Comp.ContainerDict["head"].ContainedEntity, out var immunityComp))
+        if (TryComp<FlashImmunityComponent>(ent.Owner, out var _))
+        {
             args.Args.Cancelled = true;
+            return;
+        }
+        RelayRefToParts(ent, ref args);
+        RelayRefToEquipment(ent, ref args);
     }
 
     private void OnMechFlashed(Entity<AltMechComponent> ent, ref FlashAttemptEvent args)
     {
-        if (ent.Comp.ContainerDict["head"].ContainedEntity == null)
-            return;
-
-        if (TryComp<FlashImmunityComponent>(ent.Comp.ContainerDict["head"].ContainedEntity, out var immunityComp))
+        if (TryComp<FlashImmunityComponent>(ent.Owner, out var _))
+        {
             args.Cancelled = true;
+            return;
+        }
+        RelayRefToParts(ent, ref args);
+        RelayRefToEquipment(ent, ref args);
     }
 
     private void OnMechGetEyeProtection(Entity<AltMechComponent> ent, ref GetEyeProtectionEvent args)
@@ -140,22 +128,6 @@ public abstract partial class SharedAltMechSystem : EntitySystem
             args.Protection += immunityComp.ProtectionTime;
     }
 
-    private void RelayInteractionEvent(EntityUid uid, AltMechComponent component, UserActivateInWorldEvent args)
-    {
-        var pilot = component.PilotSlot.ContainedEntity;
-        if (pilot == null)
-            return;
-
-        // TODO why is this being blocked?
-        if (!_timing.IsFirstTimePredicted)
-            return;
-
-        //if (component.CurrentSelectedEquipment != null)
-        //{
-        //    RaiseLocalEvent(component.CurrentSelectedEquipment.Value, args);
-        //}
-    }
-
     private void OnStartup(Entity<AltMechComponent> ent, ref ComponentStartup args)
     {
         foreach (var part in ent.Comp.ContainersToCreate)
@@ -165,9 +137,13 @@ public abstract partial class SharedAltMechSystem : EntitySystem
 
         ent.Comp.TankSlot = _container.EnsureContainer<ContainerSlot>(ent.Owner, ent.Comp.TankSlotId);
 
+        ent.Comp.EquipmentContainer = _container.EnsureContainer<Container>(ent.Owner, ent.Comp.EquipmentContainerId);
+
         ent.Comp.OverallMass += ent.Comp.OwnMass;
 
-        if(TryComp<MovementSpeedModifierComponent>(ent.Owner, out var movementComp))
+        ent.Comp.Integrity = ent.Comp.MaxIntegrity;
+
+        if (TryComp<MovementSpeedModifierComponent>(ent.Owner, out var movementComp))
             _movementSpeedModifier.ChangeBaseSpeed(ent.Owner, ent.Comp.OverallBaseMovementSpeed * 0.5f, ent.Comp.OverallBaseMovementSpeed, ent.Comp.OverallBaseAcceleration, movementComp);
 
         if(ent.Comp.ContainerDict["head"].ContainedEntity == null && !ent.Comp.Transparent)
@@ -175,6 +151,9 @@ public abstract partial class SharedAltMechSystem : EntitySystem
             TryComp<BlindableComponent>(ent.Owner, out var blindableComp);
             _blindable.AdjustEyeDamage((ent.Owner, blindableComp), 9); //Mech cannot see anything if it has no eyes
         }
+
+        _actions.AddAction(ent.Owner, ref ent.Comp.MechUiActionEntity, ent.Comp.MechUiAction, ent.Owner);
+        _actions.AddAction(ent.Owner, ref ent.Comp.MechEjectActionEntity, ent.Comp.MechEjectAction, ent.Owner);
 
         UpdateAppearance(ent.Owner, ent.Comp);
     }
@@ -209,8 +188,8 @@ public abstract partial class SharedAltMechSystem : EntitySystem
     {
         MeleeAttackHandle(ent, ref args.CancelledHit, out var part);
 
-        if(TryGetNetEntity(part, out var NetPart))
-            args.blocker = NetPart;
+        if(TryGetNetEntity(part, out var netPart))
+            args.blocker = netPart;
     }
 
     private void OnHitscan(Entity<AltMechComponent> ent, ref HitscanBlockAttemptEvent args)
@@ -238,7 +217,11 @@ public abstract partial class SharedAltMechSystem : EntitySystem
             if (!TryGetNetEntity(part.Value.ContainedEntity, out var NetItem))
                 continue;
 
-            if (SharedRandomExtensions.PredictedProb(_timing, 0.16f, (NetEntity)NetMech, (NetEntity)NetItem))//this chance is hardcoded because using mech parts as shields is not planned, it's just a patch to make it work untill part damage UI is made 
+            //if (SharedRandomExtensions.PredictedProb(_timing, 0.16f, (NetEntity)NetMech, (NetEntity)NetItem))//this chance is hardcoded because using mech parts as shields is not planned, it's just a patch to make it work untill part damage UI is made 
+            var seed = SharedRandomExtensions.HashCodeCombine(new() { (int)_timing.CurTick.Value, ((NetEntity)NetItem).Id, ((NetEntity)NetItem).Id });
+            var rand = new System.Random(seed);
+
+            if(rand.Prob(0.16f))
             {
                 _damageable.TryChangeDamage((EntityUid)part.Value.ContainedEntity, damage);
                 CancelledHit = true;
@@ -263,7 +246,11 @@ public abstract partial class SharedAltMechSystem : EntitySystem
             if (!TryGetNetEntity(part.Value.ContainedEntity, out var NetItem))
                 continue;
 
-            if (SharedRandomExtensions.PredictedProb(_timing, 0.16f, (NetEntity)NetMech, (NetEntity)NetItem))//this chance is hardcoded because using mech parts as shields is not planned, it's just a patch to make it work untill part damage UI is made
+            //if (SharedRandomExtensions.PredictedProb(_timing, 0.16f, (NetEntity)NetMech, (NetEntity)NetItem))//this chance is hardcoded because using mech parts as shields is not planned, it's just a patch to make it work untill part damage UI is made
+            var seed = SharedRandomExtensions.HashCodeCombine(new() { (int)_timing.CurTick.Value, ((NetEntity)NetItem).Id, ((NetEntity)NetItem).Id });
+            var rand = new System.Random(seed);
+
+            if (rand.Prob(0.16f))
             {
                 CancelledHit = true;
                 targetedPart = part.Value.ContainedEntity;
@@ -279,9 +266,9 @@ public abstract partial class SharedAltMechSystem : EntitySystem
         if (!Resolve(mech, ref component))
             return;
 
-        var rider = EnsureComp<AltMechPilotComponent>(pilot);
+        var pilotComp = EnsureComp<AltMechPilotComponent>(pilot);
 
-        rider.Mech = mech;
+        pilotComp.Mech = mech;
 
         if (_net.IsClient)
             return;
@@ -304,8 +291,8 @@ public abstract partial class SharedAltMechSystem : EntitySystem
             }
         }
 
-        _actions.AddAction(pilot, ref component.MechUiActionEntity, component.MechUiAction, mech);
-        _actions.AddAction(pilot, ref component.MechEjectActionEntity, component.MechEjectAction, mech);
+        _actions.AddAction(pilot, ref pilotComp.PilotUiActionEntity, pilotComp.PilotUiAction, mech);
+        _actions.AddAction(pilot, ref pilotComp.PilotEjectActionEntity, pilotComp.PilotEjectAction, mech);
     }
 
     /// <summary>
@@ -313,20 +300,13 @@ public abstract partial class SharedAltMechSystem : EntitySystem
     /// </summary>
     /// <param name="uid"></param>
     /// <param name="component"></param>
-    public virtual void BreakMech(EntityUid uid, AltMechComponent? component = null)
+    public virtual void BreakMech(Entity<AltMechComponent> ent)
     {
-        if (!Resolve(uid, ref component))
-            return;
+        TryEject(ent);
+        var equipment = new List<EntityUid>(ent.Comp.EquipmentContainer.ContainedEntities);
 
-        TryEject(uid, component);
-        var equipment = new List<EntityUid>(component.EquipmentContainer.ContainedEntities);
-        foreach (var ent in equipment)
-        {
-           // RemoveEquipment(uid, ent, partComp, forced: true);
-        }
-
-        component.Broken = true;
-        UpdateAppearance(uid, component);
+        ent.Comp.Broken = true;
+        UpdateAppearance(ent.Owner, ent.Comp);
     }
 
     /// <summary>
@@ -355,9 +335,10 @@ public abstract partial class SharedAltMechSystem : EntitySystem
 
         AddMass(component, equipmentComponent.OwnMass);
 
-        _container.Insert(toInsert, component.EquipmentContainer);
-
         equipmentComponent.EquipmentOwner = uid;
+
+        Dirty(uid, component);
+        Dirty(toInsert, equipmentComponent);
 
         _container.Insert(toInsert, component.EquipmentContainer);
         var ev = new MechEquipmentInsertedEvent(uid);
@@ -422,18 +403,17 @@ public abstract partial class SharedAltMechSystem : EntitySystem
     /// <param name="forced">
     ///     Whether or not the removal can be cancelled, and if non-mech equipment should be ejected.
     /// </param>
-    public void RemoveEquipment(EntityUid uid, EntityUid toRemove, MechPartComponent? component = null,
-        MechEquipmentComponent? equipmentComponent = null, bool forced = false)
+    public void RemoveEquipment(EntityUid uid, EntityUid toRemove, bool forced = false)
     {
-        if (!Resolve(uid, ref component))
-            return;
-
-        if (component.PartOwner == null || !TryComp<AltMechComponent>(component.PartOwner, out var mechComp))
+        if (!TryComp<AltMechComponent>(uid, out var mechComp))
             return;
         // When forced, we also want to handle the possibility that the "equipment" isn't actually equipment.
         // This /shouldn't/ be possible thanks to OnEntityStorageDump, but there's been quite a few regressions
         // with entities being hardlock stuck inside mechs.
-        if (!Resolve(toRemove, ref equipmentComponent) && !forced)
+        if (!TryComp<AltMechEquipmentComponent>(toRemove, out var equipmentComponent))
+            return;
+
+        if (equipmentComponent.EquipmentOwner != uid)
             return;
 
         if (!forced)
@@ -447,11 +427,15 @@ public abstract partial class SharedAltMechSystem : EntitySystem
         var ev = new MechEquipmentRemovedEvent(uid);
         RaiseLocalEvent(toRemove, ref ev);
 
-        if (forced && equipmentComponent != null)
+        if (equipmentComponent != null)
+        {
+            mechComp.CurrentEquipmentAmount -= equipmentComponent.EqipmentSize;
             equipmentComponent.EquipmentOwner = null;
+            Dirty(uid, mechComp);
+            Dirty(toRemove, equipmentComponent);
+        }
 
-        //_container.Remove(toRemove, component.EquipmentContainer);
-        //UpdateUserInterface(uid, mechComp);
+        _container.Remove(toRemove, mechComp.EquipmentContainer);
     }
 
     /// <summary>
@@ -513,7 +497,7 @@ public abstract partial class SharedAltMechSystem : EntitySystem
         Dirty(uid, component);
 
         if(TryGetNetEntity(uid, out var netMech) && TryGetNetEntity(toRemove, out var netPart))
-            RaiseNetworkEvent( new MechPartStatusChanged((NetEntity)netMech, (NetEntity)netPart, false, slot));
+            RaiseNetworkEvent(new MechPartStatusChanged((NetEntity)netMech, (NetEntity)netPart, false, slot));
 
        // UpdateUserInterface(uid, component);
     }
@@ -621,6 +605,9 @@ public abstract partial class SharedAltMechSystem : EntitySystem
         SetupUser(uid, toInsert.Value);
         _container.Insert(toInsert.Value, component.PilotSlot);
 
+        var ev = new OnMechEntryEvent();
+        RaiseLocalEvent(uid, ref ev);
+
         if (TryComp<ArmorBlockComponent>(uid, out var blockComp))
             blockComp.Owner = toInsert;
 
@@ -634,29 +621,33 @@ public abstract partial class SharedAltMechSystem : EntitySystem
     /// <param name="uid"></param>
     /// <param name="component"></param>
     /// <returns>Whether or not the pilot was ejected.</returns>
-    public virtual bool TryEject(EntityUid uid, AltMechComponent? component = null)
+    public virtual bool TryEject(Entity<AltMechComponent> ent)
     {
-        if (!Resolve(uid, ref component))
+        if (ent.Comp.PilotSlot.ContainedEntity == null || (ent.Comp.Bolted && !ent.Comp.BoltsSawed))
             return false;
 
-        if (component.PilotSlot.ContainedEntity == null || component.Bolted)
+        var pilot = ent.Comp.PilotSlot.ContainedEntity.Value;
+
+        if (!TryComp<AltMechPilotComponent>(pilot, out var pilotComp))
             return false;
 
-        var pilot = component.PilotSlot.ContainedEntity.Value;
-
-        //RemoveUser(uid, pilot);
-        if (!RemComp<AltMechPilotComponent>(pilot))
-            return false;
-
-        if (TryComp<ActiveRadioComponent>(uid, out var mechRadio))
+        if (TryComp<ActiveRadioComponent>(ent.Owner, out var mechRadio))
         {
             mechRadio.Channels.Clear();
         }
 
-        _actions.RemoveProvidedActions(pilot, uid);
-        _container.RemoveEntity(uid, pilot);
+        if (pilotComp.PilotUiActionEntity != null)
+            _actions.RemoveProvidedAction(pilot, ent.Owner, (EntityUid)pilotComp.PilotUiActionEntity);
 
-        if (TryComp<ArmorBlockComponent>(uid, out var blockComp))
+        if (pilotComp.PilotEjectActionEntity != null)
+            _actions.RemoveProvidedAction(pilot, ent.Owner, (EntityUid)pilotComp.PilotEjectActionEntity);
+
+        _container.RemoveEntity(ent.Owner, pilot);
+
+        if (!RemComp<AltMechPilotComponent>(pilot))
+            return false;
+
+        if (TryComp<ArmorBlockComponent>(ent.Owner, out var blockComp))
             blockComp.Owner = null;
 
         return true;
@@ -706,11 +697,17 @@ public abstract partial class SharedAltMechSystem : EntitySystem
         _doAfter.TryStartDoAfter(doAfterEventArgs);
     }
 
-    private void OnCanDragDrop(EntityUid uid, AltMechComponent component, ref CanDropTargetEvent args)
+    public void OnWeightlessCheck(Entity<AltMechComponent> ent, ref IsWeightlessEvent args)
+    {
+        RelayRefToParts(ent, ref args);
+        RelayRefToEquipment(ent, ref args);
+    }
+
+    private void OnCanDragDrop(Entity<AltMechComponent> ent, ref CanDropTargetEvent args)
     {
         args.Handled = true;
 
-        args.CanDrop = CanInsert(uid, args.Dragged, component);
+        args.CanDrop = CanInsert(ent.Owner, args.Dragged, ent.Comp);
     }
 
 }
@@ -741,6 +738,9 @@ public readonly record struct MechSpeedModifiedEvent(EntityUid Mech)
 
 [ByRefEvent]
 public readonly record struct OnMechExitEvent();
+
+[ByRefEvent]
+public readonly record struct OnMechEntryEvent();
 
 [ByRefEvent]
 public readonly record struct MassChangedEvent();
@@ -779,6 +779,11 @@ public sealed partial class InsertPartEvent : SimpleDoAfterEvent
 }
 
 [Serializable, NetSerializable]
+public sealed partial class MechBoltsSawedEvent : SimpleDoAfterEvent
+{
+}
+
+[Serializable, NetSerializable]
 public sealed partial class InsertEquipmentEvent : SimpleDoAfterEvent
 {
 }
@@ -793,6 +798,13 @@ public readonly record struct MechEquipmentInsertedEvent(EntityUid Mech)
 public readonly record struct MechEquipmentRemovedEvent(EntityUid Mech)
 {
     public readonly EntityUid Mech = Mech;
+}
+
+[ByRefEvent]
+public record struct RefreshOpticHudEvent<T>() where T : IComponent
+{
+    public bool Active = false;
+    public List<T> Components = new();
 }
 
 

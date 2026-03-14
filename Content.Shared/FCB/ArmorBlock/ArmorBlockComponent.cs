@@ -10,10 +10,11 @@ namespace Content.Shared.FCB.ArmorBlock;
 public sealed partial class ArmorBlockComponent : Component
 {
     /// <summary>
-    /// The entity this armor protects
+    /// The entity this armor protects(must be set manually in every implementation, made for reusability)
     /// </summary>
     [DataField, AutoNetworkedField]
     public EntityUid? Owner = null;
+
     /// <summary>
     /// The damage tresholds(a.k.a. resists)
     /// </summary>
@@ -31,4 +32,16 @@ public sealed partial class ArmorBlockComponent : Component
     /// </summary>
     [DataField("conversiondict"), AutoNetworkedField]
     public Dictionary<string, string> TransformSpecifierDict = new Dictionary<string, string>();
+
+    /// <summary>
+    /// Does damage on this entity affect it's protection
+    /// </summary>
+    [DataField("damageaffects"), AutoNetworkedField]
+    public bool DamageAffectsProtection = true;
+
+    /// <summary>
+    /// At which amount of damage taken does this entity looses all it's protection
+    /// </summary>
+    [DataField("zeroprotection"), AutoNetworkedField]
+    public int ZeroProtectionThreshold = 100;
 }

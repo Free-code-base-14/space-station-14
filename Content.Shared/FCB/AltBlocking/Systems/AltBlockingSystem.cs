@@ -1,10 +1,10 @@
 // © FCB, MIT, full text: https://github.com/Free-code-base-14/space-station-14/blob/master/LICENSE.TXT
 using Content.Shared.Actions;
 using Content.Shared.Actions.Components;
-using Content.Shared.Damage.Systems;
+using Content.Shared.Damage;
+using Content.Shared.FCB.ArmorBlock;
 using Content.Shared.FCB.ToggleBlocking;
 using Content.Shared.FCB.Weapons.Melee.Events;
-using Content.Shared.FCB.Weapons.Ranged;
 using Content.Shared.FCB.Weapons.Ranged.Events;
 using Content.Shared.Hands;
 using Content.Shared.Hands.Components;
@@ -14,9 +14,6 @@ using Content.Shared.Interaction.Events;
 using Content.Shared.Inventory.Events;
 using Content.Shared.Popups;
 using Content.Shared.Throwing;
-using Content.Shared.Weapons.Hitscan.Components;
-using Content.Shared.Weapons.Hitscan.Events;
-using Content.Shared.Weapons.Ranged.Events;
 using Robust.Shared.Containers;
 using Robust.Shared.Network;
 using Robust.Shared.Timing;
@@ -41,7 +38,7 @@ public sealed partial class AltBlockingSystem : EntitySystem
         InitializeUser();
 
         SubscribeLocalEvent<AltBlockingUserComponent, ProjectileBlockAttemptEvent>(OnBlockUserCollide);
-        SubscribeLocalEvent<HitscanBasicDamageComponent, AttemptHitscanRaycastFiredEvent>(OnBlockUserHitscan);
+        SubscribeLocalEvent<AltBlockingUserComponent, HitscanBlockAttemptEvent>(OnBlockUserHitscan);
         SubscribeLocalEvent<AltBlockingUserComponent, MeleeHitBlockAttemptEvent>(OnBlockUserMeleeHit);
         SubscribeLocalEvent<AltBlockingUserComponent, ThrowableProjectileBlockAttemptEvent>(OnBlockThrownProjectile);
 
@@ -49,8 +46,8 @@ public sealed partial class AltBlockingSystem : EntitySystem
         SubscribeLocalEvent<AltBlockingComponent, GotUnequippedHandEvent>(OnUnequip);
         SubscribeLocalEvent<AltBlockingComponent, DroppedEvent>(OnDrop);
 
-        SubscribeLocalEvent<AltBlockingComponent, GotEquippedEvent>(OnGotEquip);
-        SubscribeLocalEvent<AltBlockingComponent, GotUnequippedEvent>(OnGotUnequipped);
+        //SubscribeLocalEvent<AltBlockingComponent, GotEquippedEvent>(OnGotEquip);
+        //SubscribeLocalEvent<AltBlockingComponent, GotUnequippedEvent>(OnGotUnequipped);
 
         SubscribeLocalEvent<AltBlockingComponent, ComponentShutdown>(OnShutdown);
 
@@ -77,7 +74,7 @@ public sealed partial class AltBlockingSystem : EntitySystem
     /// <param name="compUsert"> The <see cref="AltBlockingUserComponent"/></param>
     /// <param name="user"> The entity who's using the item to block</param>
     /// <returns></returns>
-    public bool StartBlocking(AltBlockingUserComponent compUser, EntityUid user)//SS220 shield rework
+    public bool StartBlocking(AltBlockingUserComponent compUser, EntityUid user)//FCB shield rework
     {
         if (compUser.IsBlocking)
             return false;
@@ -150,11 +147,11 @@ public sealed partial class AltBlockingSystem : EntitySystem
     /// <param name="uid"> The item the component is attached to</param>
     /// <param name="component"> The <see cref="AltBlockingComponent"/> </param>
     /// <param name="user"> The person holding the blocking item </param>
-    private void StopBlockingHelper(EntityUid uid, AltBlockingComponent component, EntityUid user)
+    private void StopBlockingHelper(Entity<AltBlockingComponent> ent, EntityUid user)
     {
         var userQuery = GetEntityQuery<AltBlockingUserComponent>();
 
-        if (!userQuery.TryGetComponent(user, out var component1))
+        if (!userQuery.TryGetComponent(user, out var componentUser))
             return;
 
         var handQuery = GetEntityQuery<HandsComponent>();
@@ -164,25 +161,29 @@ public sealed partial class AltBlockingSystem : EntitySystem
 
         var shields = _handsSystem.EnumerateHeld((user, hands)).ToArray();
 
-        if (component1 != null && component1.BlockingItemsShields.Contains(uid))
-            component1.BlockingItemsShields.Remove(uid);
+        if (componentUser != null && componentUser.BlockingItemsShields.Contains(ent.Owner))
+            componentUser.BlockingItemsShields.Remove(ent.Owner);
+
+        if (TryComp<ArmorBlockComponent>(ent.Owner, out var armorComp))
+            armorComp.Owner = null;
+
+        ent.Comp.User = null;
 
         foreach (var shield in shields)
         {
-            if (HasComp<AltBlockingComponent>(shield) && userQuery.TryGetComponent(user, out var AltBlockingUserComponent))
+            if (HasComp<AltBlockingComponent>(shield) && userQuery.TryGetComponent(user, out var _))
                 return;
         }
 
-        component.User = null;
-        if (component1 != null)
+        if (componentUser != null)
         {
-            component1.BlockingItemsShields.Clear();
+            componentUser.BlockingItemsShields.Clear();
             if (_net.IsServer)
             {
-                if (component1.IsBlocking)
-                    StopBlocking(component1, user);
+                if (componentUser.IsBlocking)
+                    StopBlocking(componentUser, user);
 
-                _actionsSystem.RemoveAction(component1.BlockingToggleActionEntity);
+                _actionsSystem.RemoveAction(componentUser.BlockingToggleActionEntity);
                 RemComp<AltBlockingUserComponent>(user);
             }
         }

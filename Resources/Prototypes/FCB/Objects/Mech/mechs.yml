@@ -134,7 +134,7 @@
     ownMass: 250
     pilotWhitelist:
       components:
-        - HumanoidAppearance
+        - HumanoidProfile
 
 - type: entity
   id: MechLight

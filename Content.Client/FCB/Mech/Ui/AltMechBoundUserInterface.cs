@@ -2,7 +2,6 @@
 using Content.Client.UserInterface.Fragments;
 using Content.Shared.FCB.AltMech;
 using Content.Shared.FCB.Mech.Components;
-using Content.Shared.FCB.Mech.Parts.Components;
 using JetBrains.Annotations;
 using Robust.Client.UserInterface;
 
@@ -51,7 +50,8 @@ public sealed class AltMechBoundUserInterface : BoundUserInterface
         }
 
         _menu.OnRemovePartButtonPressed += part => SendMessage(new MechPartRemoveMessage(part));
-        _menu.OnRemovePartButtonPressed += part => UpdateStateAfterButtonPressed(part);
+
+        _menu.OnRemoveEquipmentButtonPressed += equipment => SendMessage(new AltMechEquipmentRemoveMessage(EntMan.GetNetEntity(equipment)));
 
         _menu.OnMaintenancePressed += toggled => SendMessage(new MechMaintenanceToggleMessage(toggled));
 
@@ -67,12 +67,6 @@ public sealed class AltMechBoundUserInterface : BoundUserInterface
         _menu?.SetMaintenance(mechComp.MaintenanceMode);
         _menu?.SetSeal(mechComp.Airtight);
         _menu?.SetBolt(mechComp.Bolted);
-    }
-
-    protected void UpdateStateAfterButtonPressed(string _)
-    {
-        //_menu?.UpdateMechStats();
-        //_menu?.UpdateEquipmentView();
     }
 
     protected override void UpdateState(BoundUserInterfaceState state)
@@ -98,23 +92,15 @@ public sealed class AltMechBoundUserInterface : BoundUserInterface
         if (!EntMan.TryGetComponent<AltMechComponent>(Owner, out var mechComp))
             return;
 
-        foreach (var part in mechComp.ContainerDict.Values)
+        foreach (var ent in mechComp.EquipmentContainer.ContainedEntities)
         {
-            if(part.ContainedEntity == null)
+            var ui = GetEquipmentUi(ent);
+            if (ui == null)
                 continue;
-            if (!EntMan.TryGetComponent<MechPartComponent>(part.ContainedEntity, out var partComp))
-                continue;
-
-            foreach (var ent in mechComp.EquipmentContainer.ContainedEntities)
+            foreach (var (attached, estate) in state.EquipmentStates)
             {
-                var ui = GetEquipmentUi(ent);
-                if (ui == null)
-                    continue;
-                foreach (var (attached, estate) in state.EquipmentStates)
-                {
-                    if (ent == EntMan.GetEntity(attached))
-                        ui.UpdateState(estate);
-                }
+                if (ent == EntMan.GetEntity(attached))
+                    ui.UpdateState(estate);
             }
         }
     }
